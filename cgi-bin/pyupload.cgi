@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import cgitb
-
 cgitb.enable()
 
 import cgi
@@ -60,7 +59,7 @@ def render_form(success_filenames=None, errors=None):
         import qrcode.image.svg
 
         url = f'http://{socket.getfqdn()}.local:{REQUEST_PORT}/cgi-bin/pyupload.cgi'
-        qr = qrcode.make(url, image_factory=qrcode.image.svg.SvgImage)
+        qr = qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage)
         print(f"""
             <hr>
             <p>Scan to access on another device: <a href="{url}">{url}</a></p>
@@ -68,9 +67,7 @@ def render_form(success_filenames=None, errors=None):
         """)
 
     except ImportError:
-        logging.warning(
-            "Skipping generating address QR code, qrcode library not installed or not in python path."
-        )
+        logging.warning("Skipping generating address QR code, qrcode library not installed or not in python path.")
 
 
 class PyUploadError(ValueError):
