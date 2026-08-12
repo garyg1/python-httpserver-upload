@@ -4,18 +4,17 @@ import cgitb
 cgitb.enable()
 
 import cgi
+import html
 import logging
 import os
-import html
-import socket
 import pathlib
-import sys
+import socket
 
-REQUEST_METHOD = os.environ.get("REQUEST_METHOD", "GET")
-REQUEST_PORT = os.environ.get("SERVER_PORT", "8000")
+REQUEST_METHOD = os.environ.get('REQUEST_METHOD', 'GET')
+REQUEST_PORT = os.environ.get("SERVER_PORT", '8000')
 
 
-def render_form(success_filenames=None, errors=None):
+def render_form(uploaded=None, not_uploaded=None):
     print("Content-Type: text/html")
     print()
     print("""
@@ -24,22 +23,22 @@ def render_form(success_filenames=None, errors=None):
         </head>
     """)
 
-    if success_filenames:
+    if uploaded:
         print("""
             <h3>Files uploaded successfully:</h3>
             <ul>
         """)
-        for fname in success_filenames:
+        for fname in uploaded:
             print(f"<li>{html.escape(fname)}</li>")
         print("</ul><hr>")
 
-    if errors:
+    if not_uploaded:
         print("""
             <h3>Files not uploaded successfully:</h3>
             <ul>
         """)
-        for fname, failure_reason in errors:
-            print(f"<li>{html.escape(fname)} - {html.escape(failure_reason)}</li>")
+        for fname, reason in not_uploaded:
+            print(f"<li>{html.escape(fname)} - {html.escape(reason)}</li>")
         print("</ul><hr>")
 
     print(f"""
@@ -67,60 +66,55 @@ def render_form(success_filenames=None, errors=None):
         """)
 
     except ImportError:
-        logging.warning("Skipping generating address QR code, qrcode library not installed or not in python path.")
+        logging.warning('Skipping generating address QR code, qrcode library not installed or not in python path.')
 
 
-class PyUploadError(ValueError):
-    pass
+def sanitize_path(filename):
+    if not filename:
+        raise ValueError("No filename")
 
+    required_parent_dir = f"{os.path.dirname(__file__)}/../"
+    disallowed_dirs = [
+        f"{required_parent_dir}cgi-bin",
+        f"{required_parent_dir}htbin",
+        f"{required_parent_dir}.git",
+    ]
 
-def sanitize_path(path, required_parent_dir, disallowed_dirs):
     test_results = []
-    target = (pathlib.Path(required_parent_dir) / path).resolve()
+    target = (pathlib.Path(required_parent_dir) / filename).resolve()
     for test_dir in (required_parent_dir, *disallowed_dirs):
         base = pathlib.Path(test_dir).resolve()
         test_results.append(target != base and target.is_relative_to(base))
 
     if not test_results[0] or any(test_results[1:]):
-        raise PyUploadError("Invalid path")
+        raise ValueError("Invalid filename")
 
     return target.absolute()
 
 
 if REQUEST_METHOD == "POST":
     form = cgi.FieldStorage()
-    files = (
-        form["uploadedfile"]
-        if isinstance(form["uploadedfile"], list)
-        else [form["uploadedfile"]]
-    )
+    files = form['uploadedfile'] if isinstance(form['uploadedfile'], list) else [form['uploadedfile']]
 
-    success_filenames = []
-    errors = []
+    uploaded = []
+    not_uploaded = []
     for file in files:
         filename = file.filename
         try:
-            if not filename:
-                raise PyUploadError("No filename")
+            upload_path = sanitize_path(filename)
+            logging.info(f"Uploading to '{upload_path}'")
 
-            base_dir = f"{os.path.dirname(__file__)}/../"
-            upload_path = sanitize_path(
-                filename,
-                base_dir,
-                [f"{base_dir}cgi-bin", f"{base_dir}htbin", f"{base_dir}.git"],
-            )
-            print(upload_path)
             with open(upload_path, "wb+") as f:
                 f.write(file.file.read())
 
-            success_filenames.append(filename)
-        except PyUploadError as e:
-            errors.append((filename, e.args[0]))
+            uploaded.append(filename)
+        except ValueError as e:
+            not_uploaded.append((filename, e.args[0]))
         except Exception as e:
-            print("Failed to upload", e, file=sys.stderr)
-            errors.append((filename, "Internal error"))
+            logging.error("Failed to upload", exc_info=True)
+            not_uploaded.append((filename, "Internal error"))
 
-    render_form(success_filenames=success_filenames, errors=errors)
+    render_form(uploaded=uploaded, not_uploaded=not_uploaded)
 
 else:
     render_form()
